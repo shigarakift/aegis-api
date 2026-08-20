@@ -1,0 +1,67 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DB_DATABASE")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+/// Model User: Menyimpan data kredensial dan profil dasar pengguna
+model User {
+  id       String  @id @default(uuid())
+  email    String  @unique
+  password String // Hash Argon2id
+  fullName String  @map("full_name")
+  role     Role    @default(USER)
+  isActive Boolean @default(true) @map("is_active")
+
+  // Relasi
+  refreshTokens RefreshToken[]
+  auditLogs     AuditLog[]
+
+  // Timestamps
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([role, isActive])
+  @@map("users")
+}
+
+/// Model RefreshToken: Menyimpan hash refresh token aktif (Token Rotation & Revocation)
+model RefreshToken {
+  id        String @id @default(uuid())
+  tokenHash String @map("token_hash") // Hash Argon2id dari Refresh Token mentah
+  userId    String @map("user_id")
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  expiresAt DateTime @map("expires_at")
+  isRevoked Boolean  @default(false) @map("is_revoked")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Index komposit untuk query pencarian token aktif
+  @@index([userId, isRevoked, expiresAt])
+  @@map("refresh_tokens")
+}
+
+/// Model AuditLog: Jejak audit aktivitas keamanan dan investigasi insiden
+model AuditLog {
+  id     String  @id @default(uuid())
+  userId String? @map("user_id")
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  action    String // Contoh: LOGIN_SUCCESS, LOGIN_FAILED, ACCESS_DENIED, PASSWORD_CHANGE
+  ipAddress String   @map("ip_address")
+  userAgent String?  @map("user_agent")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
+}

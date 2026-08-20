@@ -1,0 +1,132 @@
+import {
+  Body,
+  Controller,
+  HttpCode,
+  HttpStatus,
+  Post,
+  Req,
+  Res,
+  UseGuards,
+} from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
+import { Request, Response } from 'express';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { Public } from '../../common/decorators/public.decorator';
+import { AuthGuard } from '@nestjs/passport';
+import { AuthService } from './auth.service';
+import { LoginDto } from './dto/login.dto';
+import { RegisterDto } from './dto/register.dto';
+
+@ApiTags('Authentication')
+@Controller('auth')
+export class AuthController {
+  constructor(private readonly authService: AuthService) {}
+
+  @Public()
+  @Post('register')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Registrasi Pengguna Baru (Role USER)' })
+  @ApiResponse({ status: 201, description: 'User berhasil mendaftar' })
+  @ApiResponse({ status: 400, description: 'Payload tidak valid' })
+  @ApiResponse({ status: 409, description: 'Email sudah terdaftar' })
+  async register(@Body() dto: RegisterDto, @Req() req: Request) {
+    const ipAddress = req.ip || req.socket.remoteAddress || '127.0.0.1';
+    const userAgent = req.headers['user-agent'];
+    const user = await this.authService.register(dto, ipAddress, userAgent);
+    return {
+      success: true,
+      message: 'Registrasi akun berhasil.',
+      data: user,
+    };
+  }
+
+  @Public()
+  @Throttle({ default: { limit: 5, ttl: 60000 } }) // Strict rate-limit: 5 attempts per minute
+  @Post('login')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Login Pengguna (Menerbitkan Dual JWT Token)' })
+  @ApiResponse({ status: 200, description: 'Login berhasil, token diberikan' })
+  @ApiResponse({ status: 401, description: 'Kredensial tidak valid' })
+  @ApiResponse({ status: 429, description: 'Batas percobaan login terlampaui' })
+  async login(
+    @Body() dto: LoginDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const ipAddress = req.ip || req.socket.remoteAddress || '127.0.0.1';
+    const userAgent = req.headers['user-agent'];
+    const result = await this.authService.login(dto, ipAddress, userAgent);
+
+    // Send Refresh Token via HTTP-Only Secure Cookie
+    res.cookie('refresh_token', result.refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    });
+
+    return {
+      success: true,
+      message: 'Login berhasil.',
+      data: {
+        accessToken: result.accessToken,
+        user: result.user,
+      },
+    };
+  }
+
+  @Public()
+  @UseGuards(AuthGuard('jwt-refresh'))
+  @Post('refresh')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Memperbarui Access Token menggunakan Refresh Token' })
+  async refresh(
+    @CurrentUser() payload: any,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const ipAddress = req.ip || req.socket.remoteAddress || '127.0.0.1';
+    const userAgent = req.headers['user-agent'];
+    const tokens = await this.authService.refreshToken(
+      payload.userId,
+      payload.refreshToken,
+      ipAddress,
+      userAgent,
+    );
+
+    res.cookie('refresh_token', tokens.refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+
+    return {
+      success: true,
+      message: 'Access Token berhasil diperbarui.',
+      data: {
+        accessToken: tokens.accessToken,
+      },
+    };
+  }
+
+  @Post('logout')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth('access-token')
+  @ApiOperation({ summary: 'Logout Pengguna (Revoke Refresh Token)' })
+  async logout(
+    @CurrentUser('id') userId: string,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const rawRefreshToken = req.cookies?.['refresh_token'];
+    await this.authService.logout(userId, rawRefreshToken);
+    res.clearCookie('refresh_token');
+
+    return {
+      success: true,
+      message: 'Logout berhasil, sesi telah diakhiri.',
+    };
+  }
+}
