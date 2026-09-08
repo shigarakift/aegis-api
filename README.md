@@ -4,7 +4,7 @@
   <img src="https://img.shields.io/badge/NestJS-E0234E?style=for-the-badge&logo=nestjs&logoColor=white" alt="NestJS" />
   <img src="https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript" />
   <img src="https://img.shields.io/badge/PostgreSQL_16-4169E1?style=for-the-badge&logo=postgresql&logoColor=white" alt="PostgreSQL" />
-  <img src="https://img.shields.io/badge/Prisma_ORM-2D3748?style=for-the-badge&logo=prisma&logoColor=white" alt="Prisma" />
+  <img src="https://img.shields.io/badge/TypeORM-FE0803?style=for-the-badge&logo=typeorm&logoColor=white" alt="TypeORM" />
   <img src="https://img.shields.io/badge/OWASP-Top_10_Compliant-success?style=for-the-badge&logo=owasp&logoColor=white" alt="OWASP" />
 </p>
 
@@ -12,9 +12,9 @@
 
 ## 📌 1. Tujuan Proyek (Project Objective)
 
-**aegisAPI** adalah implementasi backend RESTful API berstandar industri (*enterprise-grade*) yang dirancang khusus dengan filosofi **Security-by-Design** dan **Defense-in-Depth**. 
+**aegisAPI** adalah implementasi backend RESTful API berstandar industri (*enterprise-grade*) yang dirancang khusus dengan filosofi **Security-by-Design** dan **Defense-in-Depth**.
 
-Tujuan utama proyek ini adalah menyediakan fondasi REST API yang **kebal terhadap kerentanan OWASP Top 10** (seperti *Broken Object Level Authorization/IDOR*, *SQL Injection*, *Credential Stuffing*, *Mass Assignment*, dan *XSS Token Theft*), sekaligus menjaga performa tinggi, modularitas, dan kemudahan integrasi dengan aplikasi frontend modern (React, Next.js, Vue, Mobile App).
+Tujuan utama proyek ini adalah menyediakan fondasi REST API yang **kebal terhadap kerentanan OWASP Top 10** (seperti *Broken Object Level Authorization/IDOR*, *SQL Injection*, *Credential Stuffing*, *Mass Assignment*, dan *XSS Token Theft*), sekaligus menjaga performa tinggi, modularitas, dan kemudahan integrasi dengan aplikasi frontend modern (React, Next.js, Vue, Mobile App). Seluruh operasi basis data dikelola menggunakan **TypeORM** dengan pola arsitektur *Data Mapper* dan kontrol relasional yang ketat.
 
 ---
 
@@ -29,7 +29,7 @@ Tujuan utama proyek ini adalah menyediakan fondasi REST API yang **kebal terhada
 | **Role-Based Access Control (RBAC)** | *Privilege Escalation* | `@Roles(Role.ADMIN)` dan `RolesGuard` membatasi endpoint sensitif hanya untuk otorisasi yang sah. |
 | **Mass Assignment Protection** | *Unauthorized Property Injection* | `ValidationPipe({ whitelist: true, forbidNonWhitelisted: true })` menolak payload dengan properti tak dikenal. |
 | **Rate Limiting (Anti-Brute Force)** | *Credential Stuffing / DoS* | `@nestjs/throttler` membatasi percobaan login (maksimal 5 attempt/menit per IP) dan 60 req/menit global. |
-| **SQL Injection Defense** | *Database Takeover / Data Exfiltration* | Prisma ORM dengan *Parameterized Prepared Statements* otomatis tanpa query mentah un-sanitized. |
+| **SQL Injection Defense** | *Database Takeover / Data Exfiltration* | **TypeORM** dengan pola *Data Mapper* dan *Parameterized Prepared Statements* otomatis tanpa query mentah un-sanitized. |
 | **Security HTTP Headers** | *Clickjacking, MIME Sniffing, XSS* | `helmet` middleware otomatis menginjeksi HTTP security headers. |
 | **Structured Audit Logging** | *Non-repudiation & Forensic Incident Response* | Pencatatan setiap aksi autentikasi dan kegagalan akses ke tabel `audit_logs` dan structured JSON logging (`nestjs-pino`). |
 
@@ -37,7 +37,7 @@ Tujuan utama proyek ini adalah menyediakan fondasi REST API yang **kebal terhada
 
 ## 🏗️ 3. Arsitektur Data & Relasi Database (ERD)
 
-Database menggunakan **PostgreSQL 16** yang dikelola melalui **Prisma ORM**:
+Database menggunakan **PostgreSQL 16** yang dikelola melalui **TypeORM**:
 
 ```mermaid
 erDiagram
@@ -67,6 +67,7 @@ erDiagram
         DateTime expiresAt "Expiration (7 days)"
         Boolean isRevoked "Status pencabutan token"
         DateTime createdAt "Timestamp created"
+        String familyId "UUID Family Token Tracking"
     }
 
     AuditLog {
@@ -85,8 +86,6 @@ erDiagram
 
 ```text
 aegisAPI/
-├── prisma/
-│   └── schema.prisma           # Prisma schema (PostgreSQL datasource, models, indexes)
 ├── src/
 │   ├── main.ts                 # Bootstrap application (Helmet, CORS, Validation, Swagger)
 │   ├── app.module.ts           # Root application module & global guards/filters
@@ -94,11 +93,17 @@ aegisAPI/
 │   │   └── env.validation.ts
 │   ├── common/                 # Cross-cutting security concerns
 │   │   ├── decorators/         # @CurrentUser, @Roles, @Public
+│   │   ├── enums/              # Role enum (USER, ADMIN)
 │   │   ├── filters/            # Global AllExceptionsFilter (sanitized response)
 │   │   └── guards/             # JwtAuthGuard, RolesGuard, OwnershipGuard
+│   ├── database/               # Layer Database TypeORM
+│   │   ├── data-source.ts      # DataSource configuration for TypeORM CLI
+│   │   ├── database.module.ts  # NestJS TypeOrmModule connection & pool provider
+│   │   ├── entities/           # TypeORM Entities (User, RefreshToken, AuditLog)
+│   │   ├── migrations/         # TypeORM versioned database migrations
+│   │   └── seeds/              # Database seeder (Argon2id default users & audit)
 │   └── modules/
-│       ├── prisma/             # Prisma Service & Global Module
-│       ├── logger/             # Structured Pino logger & AuditLogService
+│       ├── logger/             # Structured Pino logger & AuditLogService (TypeORM)
 │       ├── auth/               # Authentication module (Register, Login, Refresh, Logout)
 │       │   ├── dto/            # RegisterDto, LoginDto
 │       │   ├── strategies/     # JwtAccessStrategy, JwtRefreshStrategy
@@ -107,8 +112,8 @@ aegisAPI/
 │           └── dto/            # UpdateUserDto
 ├── test/                       # E2E & Security Test Suites
 ├── .env.example                # Template environment variables
-├── flow-aegsAPI.md             # Dokumen teknis alur kerja & frontend integration guide
-├── plan-prisma-orm.md          # Dokumen teknis implementasi Prisma ORM
+├── flow-aegisAPI.md            # Dokumen alur otentikasi & panduan integrasi frontend
+├── plan-typeorm.md             # Dokumen master referensi & panduan implementasi TypeORM
 └── README.md
 ```
 
@@ -139,14 +144,11 @@ aegisAPI/
    ```bash
    cp .env.example .env
    ```
-   Sesuaikan `DATABASE_URL` dengan kredensial PostgreSQL lokal Anda:
+   Sesuaikan konfigurasi kredensial PostgreSQL lokal Anda:
    ```env
    PORT=3000
    NODE_ENV=development
    DATABASE_URL="postgresql://postgres:postgres@localhost:5432/aegis_api_db?schema=public"
-   DB_HOST="host_postgres_anda"
-   DB_PASSWORD="password_db_anda"
-   DB_DATABASE="nama_database_anda"
    JWT_ACCESS_SECRET="ganti_dengan_secret_access_key_yang_sangat_panjang_dan_kuat"
    JWT_REFRESH_SECRET="ganti_dengan_secret_refresh_key_yang_sangat_panjang_dan_kuat"
    JWT_ACCESS_EXPIRES_IN="15m"
@@ -154,17 +156,34 @@ aegisAPI/
    CORS_ORIGIN="http://localhost:3000"
    ```
 
-4. **Sinkronisasi Database (Prisma ORM)**:
+4. **Jalankan Migrasi Database (TypeORM)**:
    ```bash
-   npx prisma db push
+   npm run migration:run
    ```
 
-5. **Jalankan Aplikasi dalam Mode Development**:
+5. **Jalankan Seeder Database (Opsional)**:
+   Untuk mengisi akun Admin (`admin@aegis.local`) dan User demo (`user@aegis.local`):
+   ```bash
+   npm run seed
+   ```
+
+6. **Jalankan Aplikasi dalam Mode Development**:
    ```bash
    npm run start:dev
    ```
 
 Aplikasi akan berjalan di: `http://localhost:3000/api/v1`
+
+---
+
+## 🛠️ Perintah CLI TypeORM yang Berguna
+
+| Perintah | Fungsi |
+|---|---|
+| `npm run migration:run` | Menjalankan seluruh migrasi yang belum dieksekusi ke database. |
+| `npm run migration:revert` | Me-rollback migrasi terakhir yang baru saja dieksekusi. |
+| `npm run migration:generate -- src/database/migrations/NamaMigrasi` | Men-generate migrasi baru berdasarkan perubahan entity TypeORM. |
+| `npm run seed` | Menjalankan data seeding akun awal & initial security audit log. |
 
 ---
 

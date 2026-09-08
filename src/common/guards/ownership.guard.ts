@@ -1,5 +1,5 @@
 import { Injectable, CanActivate, ExecutionContext, ForbiddenException } from '@nestjs/common';
-import { Role } from '@prisma/client';
+import { Role } from '../enums/role.enum';
 
 @Injectable()
 export class OwnershipGuard implements CanActivate {

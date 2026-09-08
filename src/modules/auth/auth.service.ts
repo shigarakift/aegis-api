@@ -5,9 +5,12 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
-import { Role } from '@prisma/client';
+import { InjectRepository } from '@nestjs/typeorm';
+import { MoreThan, Repository } from 'typeorm';
+import { Role } from '../../common/enums/role.enum';
+import { RefreshToken } from '../../database/entities/refresh-token.entity';
+import { User } from '../../database/entities/user.entity';
 import { AuditLogService } from '../logger/audit-log.service';
-import { PrismaService } from '../prisma/prisma.service';
 import { Argon2Service } from './argon2.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
@@ -15,7 +18,10 @@ import { RegisterDto } from './dto/register.dto';
 @Injectable()
 export class AuthService {
   constructor(
-    private readonly prisma: PrismaService,
+    @InjectRepository(User)
+    private readonly userRepository: Repository<User>,
+    @InjectRepository(RefreshToken)
+    private readonly refreshTokenRepository: Repository<RefreshToken>,
     private readonly argon2Service: Argon2Service,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
@@ -23,7 +29,7 @@ export class AuthService {
   ) {}
 
   async register(dto: RegisterDto, ipAddress: string, userAgent?: string) {
-    const existingUser = await this.prisma.user.findUnique({
+    const existingUser = await this.userRepository.findOne({
       where: { email: dto.email },
     });
 
@@ -33,21 +39,14 @@ export class AuthService {
 
     const hashedPassword = await this.argon2Service.hash(dto.password);
 
-    const user = await this.prisma.user.create({
-      data: {
-        email: dto.email,
-        password: hashedPassword,
-        fullName: dto.fullName,
-        role: Role.USER, // Enforcement: public registration can only create USER role
-      },
-      select: {
-        id: true,
-        email: true,
-        fullName: true,
-        role: true,
-        createdAt: true,
-      },
+    const newUser = this.userRepository.create({
+      email: dto.email,
+      password: hashedPassword,
+      fullName: dto.fullName,
+      role: Role.USER, // Enforcement: public registration can only create USER role
     });
+
+    const user = await this.userRepository.save(newUser);
 
     await this.auditLogService.logEvent({
       userId: user.id,
@@ -56,7 +55,13 @@ export class AuthService {
       userAgent,
     });
 
-    return user;
+    return {
+      id: user.id,
+      email: user.email,
+      fullName: user.fullName,
+      role: user.role,
+      createdAt: user.createdAt,
+    };
   }
 
   async login(
@@ -64,7 +69,7 @@ export class AuthService {
     ipAddress: string,
     userAgent?: string,
   ): Promise<{ accessToken: string; refreshToken: string; user: any }> {
-    const user = await this.prisma.user.findUnique({
+    const user = await this.userRepository.findOne({
       where: { email: dto.email },
     });
 
@@ -121,7 +126,7 @@ export class AuthService {
     ipAddress: string,
     userAgent?: string,
   ): Promise<{ accessToken: string; refreshToken: string }> {
-    const user = await this.prisma.user.findUnique({
+    const user = await this.userRepository.findOne({
       where: { id: userId },
     });
 
@@ -129,15 +134,15 @@ export class AuthService {
       throw new UnauthorizedException('Akses ditolak: Akun tidak ditemukan.');
     }
 
-    const activeTokens = await this.prisma.refreshToken.findMany({
+    const activeTokens = await this.refreshTokenRepository.find({
       where: {
         userId,
         isRevoked: false,
-        expiresAt: { gt: new Date() },
+        expiresAt: MoreThan(new Date()),
       },
     });
 
-    let matchingTokenRecord = null;
+    let matchingTokenRecord: RefreshToken | null = null;
     for (const record of activeTokens) {
       const isMatch = await this.argon2Service.verify(
         record.tokenHash,
@@ -160,9 +165,8 @@ export class AuthService {
     }
 
     // Revoke old token for rotation
-    await this.prisma.refreshToken.update({
-      where: { id: matchingTokenRecord.id },
-      data: { isRevoked: true },
+    await this.refreshTokenRepository.update(matchingTokenRecord.id, {
+      isRevoked: true,
     });
 
     // Issue new token pair
@@ -181,7 +185,7 @@ export class AuthService {
 
   async logout(userId: string, rawRefreshToken?: string) {
     if (rawRefreshToken) {
-      const activeTokens = await this.prisma.refreshToken.findMany({
+      const activeTokens = await this.refreshTokenRepository.find({
         where: { userId, isRevoked: false },
       });
 
@@ -191,19 +195,18 @@ export class AuthService {
           rawRefreshToken,
         );
         if (isMatch) {
-          await this.prisma.refreshToken.update({
-            where: { id: record.id },
-            data: { isRevoked: true },
+          await this.refreshTokenRepository.update(record.id, {
+            isRevoked: true,
           });
           break;
         }
       }
     } else {
       // Revoke all tokens for this user
-      await this.prisma.refreshToken.updateMany({
-        where: { userId, isRevoked: false },
-        data: { isRevoked: true },
-      });
+      await this.refreshTokenRepository.update(
+        { userId, isRevoked: false },
+        { isRevoked: true },
+      );
     }
 
     await this.auditLogService.logEvent({
@@ -234,12 +237,11 @@ export class AuthService {
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 7); // 7 days expiration
 
-    await this.prisma.refreshToken.create({
-      data: {
-        userId,
-        tokenHash,
-        expiresAt,
-      },
+    const tokenRecord = this.refreshTokenRepository.create({
+      userId,
+      tokenHash,
+      expiresAt,
     });
+    await this.refreshTokenRepository.save(tokenRecord);
   }
 }

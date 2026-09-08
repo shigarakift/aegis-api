@@ -1,9 +1,14 @@
 import { Injectable } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { AuditLog } from '../../database/entities/audit-log.entity';
 
 @Injectable()
 export class AuditLogService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    @InjectRepository(AuditLog)
+    private readonly auditLogRepository: Repository<AuditLog>,
+  ) {}
 
   async logEvent(params: {
     userId?: string;
@@ -12,14 +17,13 @@ export class AuditLogService {
     userAgent?: string;
   }) {
     try {
-      await this.prisma.auditLog.create({
-        data: {
-          userId: params.userId || null,
-          action: params.action,
-          ipAddress: params.ipAddress || 'UNKNOWN',
-          userAgent: params.userAgent || null,
-        },
+      const log = this.auditLogRepository.create({
+        userId: params.userId || null,
+        action: params.action,
+        ipAddress: params.ipAddress || 'UNKNOWN',
+        userAgent: params.userAgent || null,
       });
+      await this.auditLogRepository.save(log);
     } catch (error) {
       // Prevent failure in audit logging from crashing the primary request flow
       console.error('Failed to save audit log:', error);
