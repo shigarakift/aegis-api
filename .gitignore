@@ -25,3 +25,11 @@ Thumbs.db
 .vscode
 *.swp
 *.swo
+
+#planning file
+planning-aegisapi.md
+planning-feature.md
+plan-prisma-orm.md
+
+
+
