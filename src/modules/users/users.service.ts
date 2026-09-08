@@ -1,13 +1,18 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { User } from '../../database/entities/user.entity';
 import { UpdateUserDto } from './dto/update-user.dto';
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    @InjectRepository(User)
+    private readonly userRepository: Repository<User>,
+  ) {}
 
   async findAll() {
-    return this.prisma.user.findMany({
+    return this.userRepository.find({
       select: {
         id: true,
         email: true,
@@ -21,7 +26,7 @@ export class UsersService {
   }
 
   async findOne(id: string) {
-    const user = await this.prisma.user.findUnique({
+    const user = await this.userRepository.findOne({
       where: { id },
       select: {
         id: true,
@@ -44,9 +49,10 @@ export class UsersService {
   async update(id: string, dto: UpdateUserDto) {
     await this.findOne(id);
 
-    return this.prisma.user.update({
+    await this.userRepository.update({ id }, dto);
+
+    return this.userRepository.findOne({
       where: { id },
-      data: dto,
       select: {
         id: true,
         email: true,

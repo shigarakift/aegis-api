@@ -7,9 +7,9 @@ import { LoggerModule as PinoLoggerModule } from 'nestjs-pino';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { envValidationSchema } from './config/env.validation';
+import { DatabaseModule } from './database/database.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { LoggerModule } from './modules/logger/logger.module';
-import { PrismaModule } from './modules/prisma/prisma.module';
 import { UsersModule } from './modules/users/users.module';
 
 @Module({
@@ -40,7 +40,7 @@ import { UsersModule } from './modules/users/users.module';
         limit: 60, // Default rate limit: 60 requests per minute
       },
     ]),
-    PrismaModule,
+    DatabaseModule,
     LoggerModule,
     AuthModule,
     UsersModule,
