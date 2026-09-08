@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   UnauthorizedException,
@@ -6,14 +7,20 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
+import * as crypto from 'crypto';
 import { MoreThan, Repository } from 'typeorm';
 import { Role } from '../../common/enums/role.enum';
+import { PasswordResetToken } from '../../database/entities/password-reset-token.entity';
 import { RefreshToken } from '../../database/entities/refresh-token.entity';
 import { User } from '../../database/entities/user.entity';
 import { AuditLogService } from '../logger/audit-log.service';
+import { MailerService } from '../mailer/mailer.service';
+import { getPasswordResetTemplate } from '../mailer/templates/password-reset.template';
 import { Argon2Service } from './argon2.service';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 
 @Injectable()
 export class AuthService {
@@ -22,10 +29,13 @@ export class AuthService {
     private readonly userRepository: Repository<User>,
     @InjectRepository(RefreshToken)
     private readonly refreshTokenRepository: Repository<RefreshToken>,
+    @InjectRepository(PasswordResetToken)
+    private readonly passwordResetTokenRepository: Repository<PasswordResetToken>,
     private readonly argon2Service: Argon2Service,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly auditLogService: AuditLogService,
+    private readonly mailerService: MailerService,
   ) {}
 
   async register(dto: RegisterDto, ipAddress: string, userAgent?: string) {
@@ -244,4 +254,143 @@ export class AuthService {
     });
     await this.refreshTokenRepository.save(tokenRecord);
   }
+
+  async forgotPassword(
+    dto: ForgotPasswordDto,
+    ipAddress: string,
+    userAgent?: string,
+  ): Promise<{ success: boolean; message: string }> {
+    const genericResponse = {
+      success: true,
+      message:
+        'Jika email terdaftar, instruksi pemulihan kata sandi telah dikirim ke inbox Anda.',
+    };
+
+    const user = await this.userRepository.findOne({
+      where: { email: dto.email },
+    });
+
+    // Anti-User Enumeration: Selalu return genericResponse meskipun email tidak terdaftar atau tidak aktif
+    if (!user || !user.isActive) {
+      await this.auditLogService.logEvent({
+        action: 'PASSWORD_RESET_REQUESTED_UNKNOWN_EMAIL',
+        ipAddress,
+        userAgent,
+      });
+      return genericResponse;
+    }
+
+    // Invalidate semua token reset lama yang belum dipakai milik user ini
+    await this.passwordResetTokenRepository.update(
+      { userId: user.id, isUsed: false },
+      { isUsed: true },
+    );
+
+    // Generate cryptographic raw token 32-byte hex (64 karakter)
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+
+    // Token kedaluwarsa dalam 15 menit
+    const expiresInMinutes = 15;
+    const expiresAt = new Date(Date.now() + expiresInMinutes * 60 * 1000);
+
+    const resetRecord = this.passwordResetTokenRepository.create({
+      userId: user.id,
+      tokenHash,
+      expiresAt,
+      isUsed: false,
+    });
+    await this.passwordResetTokenRepository.save(resetRecord);
+
+    // Buat tautan / instruksi pemulihan
+    const clientUrl = this.configService.get<string>('CORS_ORIGIN', 'http://localhost:3000');
+    const resetLink = `${clientUrl}/auth/reset-password?token=${rawToken}`;
+    const emailTemplate = getPasswordResetTemplate({
+      fullName: user.fullName,
+      resetLink,
+      expiresInMinutes,
+    });
+
+    // Kirim email secara non-blocking
+    this.mailerService
+      .sendMail({
+        to: user.email,
+        subject: 'Instruksi Pemulihan Kata Sandi - aegisAPI',
+        html: emailTemplate.html,
+        text: `${emailTemplate.text}\n[Token Reset]: ${rawToken}`,
+      })
+      .catch((err) => console.error('Failed to dispatch reset email:', err));
+
+    await this.auditLogService.logEvent({
+      userId: user.id,
+      action: 'PASSWORD_RESET_REQUESTED',
+      ipAddress,
+      userAgent,
+    });
+
+    return genericResponse;
+  }
+
+  async resetPassword(
+    dto: ResetPasswordDto,
+    ipAddress: string,
+    userAgent?: string,
+  ): Promise<{ success: boolean; message: string }> {
+    // Hash input token dengan SHA-256 untuk dicocokkan dengan yang ada di database
+    const tokenHash = crypto.createHash('sha256').update(dto.token).digest('hex');
+
+    const tokenRecord = await this.passwordResetTokenRepository.findOne({
+      where: {
+        tokenHash,
+        isUsed: false,
+        expiresAt: MoreThan(new Date()),
+      },
+      relations: ['user'],
+    });
+
+    if (!tokenRecord || !tokenRecord.user || !tokenRecord.user.isActive) {
+      await this.auditLogService.logEvent({
+        action: 'PASSWORD_RESET_FAILED_INVALID_OR_EXPIRED_TOKEN',
+        ipAddress,
+        userAgent,
+      });
+      throw new BadRequestException(
+        'Token reset kata sandi tidak valid atau telah kedaluwarsa.',
+      );
+    }
+
+    // Hash password baru menggunakan Argon2id
+    const newHashedPassword = await this.argon2Service.hash(dto.newPassword);
+
+    // Perbarui kata sandi user
+    await this.userRepository.update(tokenRecord.userId, {
+      password: newHashedPassword,
+      updatedAt: new Date(),
+    });
+
+    // Tandai token reset ini telah digunakan (One-Time Use)
+    await this.passwordResetTokenRepository.update(tokenRecord.id, {
+      isUsed: true,
+    });
+
+    // Invalidation seluruh sesi refresh token aktif (Force logout semua perangkat)
+    await this.refreshTokenRepository.update(
+      { userId: tokenRecord.userId, isRevoked: false },
+      { isRevoked: true },
+    );
+
+    await this.auditLogService.logEvent({
+      userId: tokenRecord.userId,
+      action: 'PASSWORD_RESET_SUCCESS',
+      ipAddress,
+      userAgent,
+    });
+
+    return {
+      success: true,
+      message:
+        'Password berhasil diubah. Seluruh sesi lama telah dihentikan, silakan login kembali dengan password baru.',
+    };
+  }
 }
+

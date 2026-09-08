@@ -2,6 +2,7 @@ import { Global, Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuditLog } from './entities/audit-log.entity';
+import { PasswordResetToken } from './entities/password-reset-token.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
 import { User } from './entities/user.entity';
 
@@ -26,7 +27,7 @@ import { User } from './entities/user.entity';
                 database: configService.get<string>('DB_DATABASE', 'aegis_api_db'),
               }),
           ssl: isProduction ? { rejectUnauthorized: false } : false,
-          entities: [User, RefreshToken, AuditLog],
+          entities: [User, RefreshToken, AuditLog, PasswordResetToken],
           autoLoadEntities: true,
           synchronize: false,
           logging: !isProduction,

@@ -12,6 +12,7 @@ import {
 } from 'typeorm';
 import { Role } from '../../common/enums/role.enum';
 import { AuditLog } from './audit-log.entity';
+import { PasswordResetToken } from './password-reset-token.entity';
 import { RefreshToken } from './refresh-token.entity';
 
 @Entity('users')
@@ -61,6 +62,11 @@ export class User {
     cascade: ['remove'],
   })
   refreshTokens: RefreshToken[];
+
+  @OneToMany(() => PasswordResetToken, (token) => token.user, {
+    cascade: ['remove'],
+  })
+  passwordResetTokens: PasswordResetToken[];
 
   @OneToMany(() => AuditLog, (log) => log.user)
   auditLogs: AuditLog[];

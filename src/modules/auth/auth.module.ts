@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { PasswordResetToken } from '../../database/entities/password-reset-token.entity';
 import { RefreshToken } from '../../database/entities/refresh-token.entity';
 import { User } from '../../database/entities/user.entity';
 import { Argon2Service } from './argon2.service';
@@ -14,7 +15,7 @@ import { JwtRefreshStrategy } from './strategies/jwt-refresh.strategy';
   imports: [
     PassportModule,
     JwtModule.register({}),
-    TypeOrmModule.forFeature([User, RefreshToken]),
+    TypeOrmModule.forFeature([User, RefreshToken, PasswordResetToken]),
   ],
   controllers: [AuthController],
   providers: [AuthService, Argon2Service, JwtAccessStrategy, JwtRefreshStrategy],
