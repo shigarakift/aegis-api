@@ -1,4 +1,6 @@
+import { randomUUID } from 'crypto';
 import {
+  BeforeInsert,
   Column,
   CreateDateColumn,
   Entity,
@@ -16,6 +18,19 @@ import { User } from './user.entity';
 export class RefreshToken {
   @PrimaryGeneratedColumn('uuid')
   id: string;
+
+  @BeforeInsert()
+  generateId() {
+    if (!this.id) {
+      this.id = randomUUID();
+    }
+    if (!this.familyId) {
+      this.familyId = randomUUID();
+    }
+    if (!this.createdAt) {
+      this.createdAt = new Date();
+    }
+  }
 
   @Column({ type: 'varchar', length: 255, name: 'token_hash' })
   tokenHash: string;

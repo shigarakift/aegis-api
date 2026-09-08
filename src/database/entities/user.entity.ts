@@ -1,4 +1,7 @@
+import { randomUUID } from 'crypto';
 import {
+  BeforeInsert,
+  BeforeUpdate,
   Column,
   CreateDateColumn,
   Entity,
@@ -16,6 +19,24 @@ import { RefreshToken } from './refresh-token.entity';
 export class User {
   @PrimaryGeneratedColumn('uuid')
   id: string;
+
+  @BeforeInsert()
+  generateDefaults() {
+    if (!this.id) {
+      this.id = randomUUID();
+    }
+    if (!this.createdAt) {
+      this.createdAt = new Date();
+    }
+    if (!this.updatedAt) {
+      this.updatedAt = new Date();
+    }
+  }
+
+  @BeforeUpdate()
+  updateTimestamp() {
+    this.updatedAt = new Date();
+  }
 
   @Column({ type: 'varchar', length: 255, unique: true })
   email: string;

@@ -1,4 +1,6 @@
+import { randomUUID } from 'crypto';
 import {
+  BeforeInsert,
   Column,
   CreateDateColumn,
   Entity,
@@ -16,6 +18,16 @@ import { User } from './user.entity';
 export class AuditLog {
   @PrimaryGeneratedColumn('uuid')
   id: string;
+
+  @BeforeInsert()
+  generateId() {
+    if (!this.id) {
+      this.id = randomUUID();
+    }
+    if (!this.createdAt) {
+      this.createdAt = new Date();
+    }
+  }
 
   @Column({ type: 'uuid', name: 'user_id', nullable: true })
   userId: string | null;
