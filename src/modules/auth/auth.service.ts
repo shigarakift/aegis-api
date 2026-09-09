@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -109,7 +110,7 @@ export class AuthService {
     }
 
     const tokens = await this.generateTokens(user.id, user.email, user.role);
-    await this.storeRefreshToken(user.id, tokens.refreshToken);
+    await this.storeRefreshToken(user.id, tokens.refreshToken, ipAddress, userAgent);
 
     await this.auditLogService.logEvent({
       userId: user.id,
@@ -181,7 +182,13 @@ export class AuthService {
 
     // Issue new token pair
     const tokens = await this.generateTokens(user.id, user.email, user.role);
-    await this.storeRefreshToken(user.id, tokens.refreshToken);
+    await this.storeRefreshToken(
+      user.id,
+      tokens.refreshToken,
+      ipAddress,
+      userAgent,
+      matchingTokenRecord.familyId,
+    );
 
     await this.auditLogService.logEvent({
       userId: user.id,
@@ -242,7 +249,13 @@ export class AuthService {
     return { accessToken, refreshToken };
   }
 
-  private async storeRefreshToken(userId: string, refreshToken: string) {
+  private async storeRefreshToken(
+    userId: string,
+    refreshToken: string,
+    ipAddress?: string,
+    userAgent?: string,
+    familyId?: string,
+  ) {
     const tokenHash = await this.argon2Service.hash(refreshToken);
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 7); // 7 days expiration
@@ -251,6 +264,9 @@ export class AuthService {
       userId,
       tokenHash,
       expiresAt,
+      ipAddress,
+      userAgent,
+      ...(familyId ? { familyId } : {}),
     });
     await this.refreshTokenRepository.save(tokenRecord);
   }
@@ -390,6 +406,151 @@ export class AuthService {
       success: true,
       message:
         'Password berhasil diubah. Seluruh sesi lama telah dihentikan, silakan login kembali dengan password baru.',
+    };
+  }
+
+  async getActiveSessions(
+    userId: string,
+    currentRawRefreshToken?: string,
+  ): Promise<
+    Array<{
+      id: string;
+      ipAddress: string | null;
+      userAgent: string | null;
+      createdAt: Date;
+      isCurrent: boolean;
+    }>
+  > {
+    const activeTokens = await this.refreshTokenRepository.find({
+      where: {
+        userId,
+        isRevoked: false,
+        expiresAt: MoreThan(new Date()),
+      },
+      order: {
+        createdAt: 'DESC',
+      },
+    });
+
+    const sessions = await Promise.all(
+      activeTokens.map(async (token) => {
+        let isCurrent = false;
+        if (currentRawRefreshToken) {
+          try {
+            isCurrent = await this.argon2Service.verify(
+              token.tokenHash,
+              currentRawRefreshToken,
+            );
+          } catch {
+            isCurrent = false;
+          }
+        }
+        return {
+          id: token.id,
+          ipAddress: token.ipAddress || null,
+          userAgent: token.userAgent || null,
+          createdAt: token.createdAt,
+          isCurrent,
+        };
+      }),
+    );
+
+    return sessions;
+  }
+
+  async revokeSession(
+    userId: string,
+    sessionId: string,
+    ipAddress?: string,
+    userAgent?: string,
+  ): Promise<{ success: boolean; message: string }> {
+    const token = await this.refreshTokenRepository.findOne({
+      where: {
+        id: sessionId,
+        userId,
+        isRevoked: false,
+      },
+    });
+
+    // IDOR defense: if session does not exist or does not belong to user, return 404
+    if (!token) {
+      throw new NotFoundException('Sesi tidak ditemukan atau telah dicabut.');
+    }
+
+    await this.refreshTokenRepository.update(token.id, {
+      isRevoked: true,
+    });
+
+    await this.auditLogService.logEvent({
+      userId,
+      action: 'SESSION_REVOKED',
+      ipAddress: ipAddress || 'N/A',
+      userAgent,
+    });
+
+    return {
+      success: true,
+      message: 'Sesi berhasil dicabut.',
+    };
+  }
+
+  async revokeOtherSessions(
+    userId: string,
+    currentRawRefreshToken?: string,
+    ipAddress?: string,
+    userAgent?: string,
+  ): Promise<{ success: boolean; message: string }> {
+    if (!currentRawRefreshToken) {
+      throw new BadRequestException(
+        'Refresh token sesi saat ini tidak ditemukan. Silakan login kembali.',
+      );
+    }
+
+    const activeTokens = await this.refreshTokenRepository.find({
+      where: {
+        userId,
+        isRevoked: false,
+        expiresAt: MoreThan(new Date()),
+      },
+    });
+
+    let currentTokenId: string | null = null;
+    for (const token of activeTokens) {
+      try {
+        const isMatch = await this.argon2Service.verify(
+          token.tokenHash,
+          currentRawRefreshToken,
+        );
+        if (isMatch) {
+          currentTokenId = token.id;
+          break;
+        }
+      } catch {
+        // continue
+      }
+    }
+
+    // Revoke all active tokens except the current one
+    const tokensToRevoke = activeTokens.filter(
+      (token) => token.id !== currentTokenId,
+    );
+
+    for (const token of tokensToRevoke) {
+      await this.refreshTokenRepository.update(token.id, {
+        isRevoked: true,
+      });
+    }
+
+    await this.auditLogService.logEvent({
+      userId,
+      action: 'OTHER_SESSIONS_REVOKED',
+      ipAddress: ipAddress || 'N/A',
+      userAgent,
+    });
+
+    return {
+      success: true,
+      message: 'Seluruh sesi perangkat lain berhasil dicabut.',
     };
   }
 }

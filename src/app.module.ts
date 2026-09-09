@@ -26,13 +26,7 @@ import { UsersModule } from './modules/users/users.module';
             ? { target: 'pino-pretty', options: { singleLine: true } }
             : undefined,
         autoLogging: true,
-        serializers: {
-          req(req) {
-            req.headers.authorization = undefined;
-            req.headers.cookie = undefined;
-            return req;
-          },
-        },
+        redact: ['req.headers.authorization', 'req.headers.cookie'],
       },
     }),
     ThrottlerModule.forRoot([

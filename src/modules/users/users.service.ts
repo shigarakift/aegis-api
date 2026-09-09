@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from '../../database/entities/user.entity';
@@ -47,7 +47,16 @@ export class UsersService {
   }
 
   async update(id: string, dto: UpdateUserDto) {
-    await this.findOne(id);
+    const user = await this.findOne(id);
+
+    if (dto.email && dto.email !== user.email) {
+      const existingEmail = await this.userRepository.findOne({
+        where: { email: dto.email },
+      });
+      if (existingEmail && existingEmail.id !== id) {
+        throw new ConflictException('Email sudah digunakan oleh pengguna lain.');
+      }
+    }
 
     await this.userRepository.update({ id }, dto);
 

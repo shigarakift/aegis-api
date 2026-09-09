@@ -60,4 +60,10 @@ export class RefreshToken {
   @Column({ type: 'uuid', name: 'family_id' })
   @Generated('uuid')
   familyId: string;
+
+  @Column({ type: 'varchar', length: 45, nullable: true, name: 'ip_address' })
+  ipAddress?: string;
+
+  @Column({ type: 'text', nullable: true, name: 'user_agent' })
+  userAgent?: string;
 }
