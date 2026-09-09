@@ -1,8 +1,11 @@
 import {
   Body,
   Controller,
+  Delete,
+  Get,
   HttpCode,
   HttpStatus,
+  Param,
   Post,
   Req,
   Res,
@@ -171,6 +174,89 @@ export class AuthController {
     const ipAddress = req.ip || req.socket.remoteAddress || '127.0.0.1';
     const userAgent = req.headers['user-agent'];
     const result = await this.authService.resetPassword(dto, ipAddress, userAgent);
+    return result;
+  }
+
+  @Get('sessions')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth('access-token')
+  @ApiOperation({ summary: 'Ambil Daftar Sesi Aktif Pengguna' })
+  @ApiResponse({
+    status: 200,
+    description: 'Daftar sesi aktif berhasil diambil',
+  })
+  async getSessions(
+    @CurrentUser('id') userId: string,
+    @Req() req: Request,
+  ) {
+    const rawRefreshToken = req.cookies?.['refresh_token'];
+    const sessions = await this.authService.getActiveSessions(
+      userId,
+      rawRefreshToken,
+    );
+    return {
+      success: true,
+      data: sessions,
+    };
+  }
+
+  @Delete('sessions')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth('access-token')
+  @ApiOperation({
+    summary: 'Cabut Semua Sesi Lain (Logout dari Seluruh Perangkat Lain)',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Seluruh sesi perangkat lain berhasil dicabut',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Refresh token sesi saat ini tidak ditemukan pada cookie',
+  })
+  async revokeOtherSessions(
+    @CurrentUser('id') userId: string,
+    @Req() req: Request,
+  ) {
+    const rawRefreshToken = req.cookies?.['refresh_token'];
+    const ipAddress = req.ip || req.socket.remoteAddress || '127.0.0.1';
+    const userAgent = req.headers['user-agent'];
+    const result = await this.authService.revokeOtherSessions(
+      userId,
+      rawRefreshToken,
+      ipAddress,
+      userAgent,
+    );
+    return result;
+  }
+
+  @Delete('sessions/:id')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth('access-token')
+  @ApiOperation({
+    summary: 'Cabut Sesi Spesifik (Remote Logout Perangkat Tertentu)',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Sesi berhasil dicabut',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Sesi tidak ditemukan atau telah dicabut (IDOR safe)',
+  })
+  async revokeSession(
+    @CurrentUser('id') userId: string,
+    @Param('id') sessionId: string,
+    @Req() req: Request,
+  ) {
+    const ipAddress = req.ip || req.socket.remoteAddress || '127.0.0.1';
+    const userAgent = req.headers['user-agent'];
+    const result = await this.authService.revokeSession(
+      userId,
+      sessionId,
+      ipAddress,
+      userAgent,
+    );
     return result;
   }
 }

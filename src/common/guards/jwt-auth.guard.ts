@@ -1,4 +1,8 @@
-import { ExecutionContext, Injectable } from '@nestjs/common';
+import {
+  ExecutionContext,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { AuthGuard } from '@nestjs/passport';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
@@ -20,5 +24,16 @@ export class JwtAuthGuard extends AuthGuard('jwt-access') {
     }
 
     return super.canActivate(context);
+  }
+
+  handleRequest(err: any, user: any, info: any) {
+    if (err || !user) {
+      const reason =
+        info?.message ||
+        err?.message ||
+        'Token autentikasi tidak ditemukan atau tidak valid';
+      throw new UnauthorizedException(`Akses ditolak: ${reason}`);
+    }
+    return user;
   }
 }

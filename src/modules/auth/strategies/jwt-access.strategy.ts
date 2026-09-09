@@ -12,6 +12,20 @@ export interface JwtPayload {
   role: string;
 }
 
+const customBearerExtractor = (req: any): string | null => {
+  const authHeader =
+    req?.headers?.authorization ||
+    req?.headers?.Authorization;
+
+  if (!authHeader || typeof authHeader !== 'string') {
+    return null;
+  }
+
+  // Handle standard "Bearer <token>", accidental "Bearer Bearer <token>", or raw "<token>"
+  const token = authHeader.replace(/^(Bearer\s+)+/i, '').trim();
+  return token || null;
+};
+
 @Injectable()
 export class JwtAccessStrategy extends PassportStrategy(Strategy, 'jwt-access') {
   constructor(
@@ -20,7 +34,10 @@ export class JwtAccessStrategy extends PassportStrategy(Strategy, 'jwt-access') 
     private readonly userRepository: Repository<User>,
   ) {
     super({
-      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      jwtFromRequest: ExtractJwt.fromExtractors([
+        customBearerExtractor,
+        ExtractJwt.fromAuthHeaderAsBearerToken(),
+      ]),
       ignoreExpiration: false,
       secretOrKey: configService.get<string>('JWT_ACCESS_SECRET'),
     });
