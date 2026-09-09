@@ -1,4 +1,7 @@
+import { randomUUID } from 'crypto';
 import {
+  BeforeInsert,
+  BeforeUpdate,
   Column,
   CreateDateColumn,
   Entity,
@@ -9,6 +12,7 @@ import {
 } from 'typeorm';
 import { Role } from '../../common/enums/role.enum';
 import { AuditLog } from './audit-log.entity';
+import { PasswordResetToken } from './password-reset-token.entity';
 import { RefreshToken } from './refresh-token.entity';
 
 @Entity('users')
@@ -16,6 +20,24 @@ import { RefreshToken } from './refresh-token.entity';
 export class User {
   @PrimaryGeneratedColumn('uuid')
   id: string;
+
+  @BeforeInsert()
+  generateDefaults() {
+    if (!this.id) {
+      this.id = randomUUID();
+    }
+    if (!this.createdAt) {
+      this.createdAt = new Date();
+    }
+    if (!this.updatedAt) {
+      this.updatedAt = new Date();
+    }
+  }
+
+  @BeforeUpdate()
+  updateTimestamp() {
+    this.updatedAt = new Date();
+  }
 
   @Column({ type: 'varchar', length: 255, unique: true })
   email: string;
@@ -40,6 +62,11 @@ export class User {
     cascade: ['remove'],
   })
   refreshTokens: RefreshToken[];
+
+  @OneToMany(() => PasswordResetToken, (token) => token.user, {
+    cascade: ['remove'],
+  })
+  passwordResetTokens: PasswordResetToken[];
 
   @OneToMany(() => AuditLog, (log) => log.user)
   auditLogs: AuditLog[];

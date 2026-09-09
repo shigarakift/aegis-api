@@ -15,8 +15,10 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { AuthGuard } from '@nestjs/passport';
 import { AuthService } from './auth.service';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -129,4 +131,47 @@ export class AuthController {
       message: 'Logout berhasil, sesi telah diakhiri.',
     };
   }
+
+  @Public()
+  @Throttle({ default: { limit: 3, ttl: 60000 } }) // Anti-Brute-Force: Maks 3 request per menit
+  @Post('forgot-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Permintaan Reset Kata Sandi (Anti-User Enumeration Protected)',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Instruksi reset password dikirim (respon seragam)',
+  })
+  @ApiResponse({ status: 429, description: 'Rate limit terlampaui' })
+  async forgotPassword(@Body() dto: ForgotPasswordDto, @Req() req: Request) {
+    const ipAddress = req.ip || req.socket.remoteAddress || '127.0.0.1';
+    const userAgent = req.headers['user-agent'];
+    const result = await this.authService.forgotPassword(dto, ipAddress, userAgent);
+    return result;
+  }
+
+  @Public()
+  @Throttle({ default: { limit: 5, ttl: 60000 } }) // Maks 5 percobaan per menit
+  @Post('reset-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Eksekusi Reset Kata Sandi Menggunakan Token',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Kata sandi berhasil diubah dan seluruh sesi di-revoke',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Token tidak valid, kedaluwarsa, atau sudah pernah digunakan',
+  })
+  @ApiResponse({ status: 429, description: 'Rate limit terlampaui' })
+  async resetPassword(@Body() dto: ResetPasswordDto, @Req() req: Request) {
+    const ipAddress = req.ip || req.socket.remoteAddress || '127.0.0.1';
+    const userAgent = req.headers['user-agent'];
+    const result = await this.authService.resetPassword(dto, ipAddress, userAgent);
+    return result;
+  }
 }
+

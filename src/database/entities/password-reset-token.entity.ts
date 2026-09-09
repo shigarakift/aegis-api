@@ -4,7 +4,6 @@ import {
   Column,
   CreateDateColumn,
   Entity,
-  Generated,
   Index,
   JoinColumn,
   ManyToOne,
@@ -12,33 +11,30 @@ import {
 } from 'typeorm';
 import { User } from './user.entity';
 
-@Entity('refresh_tokens')
-@Index(['userId', 'isRevoked', 'expiresAt'])
-@Index(['familyId'])
-export class RefreshToken {
+@Entity('password_reset_tokens')
+@Index(['tokenHash', 'isUsed', 'expiresAt'])
+@Index(['userId'])
+export class PasswordResetToken {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
   @BeforeInsert()
-  generateId() {
+  generateDefaults() {
     if (!this.id) {
       this.id = randomUUID();
-    }
-    if (!this.familyId) {
-      this.familyId = randomUUID();
     }
     if (!this.createdAt) {
       this.createdAt = new Date();
     }
   }
 
-  @Column({ type: 'varchar', length: 255, name: 'token_hash' })
+  @Column({ type: 'varchar', length: 64, name: 'token_hash' })
   tokenHash: string;
 
-  @Column({ type: 'uuid', name: 'user_id' })
+  @Column({ name: 'user_id' })
   userId: string;
 
-  @ManyToOne(() => User, (user) => user.refreshTokens, {
+  @ManyToOne(() => User, (user) => user.passwordResetTokens, {
     onDelete: 'CASCADE',
   })
   @JoinColumn({ name: 'user_id' })
@@ -47,8 +43,8 @@ export class RefreshToken {
   @Column({ type: 'timestamptz', name: 'expires_at' })
   expiresAt: Date;
 
-  @Column({ type: 'boolean', name: 'is_revoked', default: false })
-  isRevoked: boolean;
+  @Column({ type: 'boolean', name: 'is_used', default: false })
+  isUsed: boolean;
 
   @CreateDateColumn({
     type: 'timestamptz',
@@ -56,8 +52,4 @@ export class RefreshToken {
     default: () => 'CURRENT_TIMESTAMP',
   })
   createdAt: Date;
-
-  @Column({ type: 'uuid', name: 'family_id' })
-  @Generated('uuid')
-  familyId: string;
 }

@@ -1,6 +1,7 @@
 import { DataSource } from 'typeorm';
 import * as dotenv from 'dotenv';
 import { AuditLog } from './entities/audit-log.entity';
+import { PasswordResetToken } from './entities/password-reset-token.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
 import { User } from './entities/user.entity';
 
@@ -21,7 +22,7 @@ export const AppDataSource = new DataSource({
         database: process.env.DB_DATABASE || 'aegis_api_db',
       }),
   ssl: isProduction ? { rejectUnauthorized: false } : false,
-  entities: [User, RefreshToken, AuditLog],
+  entities: [User, RefreshToken, AuditLog, PasswordResetToken],
   migrations: [__dirname + '/migrations/*{.ts,.js}'],
   synchronize: false,
   logging: process.env.NODE_ENV === 'development',

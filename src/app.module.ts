@@ -10,6 +10,7 @@ import { envValidationSchema } from './config/env.validation';
 import { DatabaseModule } from './database/database.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { LoggerModule } from './modules/logger/logger.module';
+import { MailerModule } from './modules/mailer/mailer.module';
 import { UsersModule } from './modules/users/users.module';
 
 @Module({
@@ -42,6 +43,7 @@ import { UsersModule } from './modules/users/users.module';
     ]),
     DatabaseModule,
     LoggerModule,
+    MailerModule,
     AuthModule,
     UsersModule,
   ],

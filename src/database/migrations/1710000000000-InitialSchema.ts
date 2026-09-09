@@ -32,6 +32,13 @@ export class InitialSchema1710000000000 implements MigrationInterface {
     `);
 
     await queryRunner.query(
+      `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "role" "role_enum" NOT NULL DEFAULT 'USER';`,
+    );
+    await queryRunner.query(
+      `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "is_active" boolean NOT NULL DEFAULT true;`,
+    );
+
+    await queryRunner.query(
       `CREATE INDEX IF NOT EXISTS "IDX_users_role_is_active" ON "users" ("role", "is_active");`,
     );
 
@@ -49,6 +56,14 @@ export class InitialSchema1710000000000 implements MigrationInterface {
           REFERENCES "users" ("id") ON DELETE CASCADE ON UPDATE NO ACTION
       );
     `);
+
+    // Ensure family_id exists if refresh_tokens was previously created without it
+    await queryRunner.query(
+      `ALTER TABLE "refresh_tokens" ADD COLUMN IF NOT EXISTS "family_id" uuid NOT NULL DEFAULT gen_random_uuid();`,
+    );
+    await queryRunner.query(
+      `ALTER TABLE "refresh_tokens" ADD COLUMN IF NOT EXISTS "is_revoked" boolean NOT NULL DEFAULT false;`,
+    );
 
     await queryRunner.query(
       `CREATE INDEX IF NOT EXISTS "IDX_refresh_tokens_lookup" ON "refresh_tokens" ("user_id", "is_revoked", "expires_at");`,
@@ -70,6 +85,10 @@ export class InitialSchema1710000000000 implements MigrationInterface {
           REFERENCES "users" ("id") ON DELETE SET NULL ON UPDATE NO ACTION
       );
     `);
+
+    await queryRunner.query(
+      `ALTER TABLE "audit_logs" ADD COLUMN IF NOT EXISTS "user_agent" text;`,
+    );
 
     await queryRunner.query(
       `CREATE INDEX IF NOT EXISTS "IDX_audit_logs_user_id" ON "audit_logs" ("user_id");`,
