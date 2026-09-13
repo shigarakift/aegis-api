@@ -123,4 +123,68 @@ describe('aegisAPI Security E2E Tests', () => {
       expect(u.password).toBeUndefined();
     });
   });
+
+  it('🧪 Should reject non-admin users from accessing GET /api/v1/audit-logs (RBAC Enforcement)', async () => {
+    const loginRes = await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({
+        email: 'user@aegis.local',
+        password: 'UserSecure2026!',
+      });
+
+    const userToken = loginRes.body.data.accessToken;
+
+    const res = await request(app.getHttpServer())
+      .get('/api/v1/audit-logs')
+      .set('Authorization', `Bearer ${userToken}`);
+
+    expect(res.status).toBe(403);
+  });
+
+  it('🧪 Should allow Admin to query audit logs with pagination metadata', async () => {
+    const loginRes = await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({
+        email: 'admin@aegis.local',
+        password: 'AdminSecure2026!',
+      });
+
+    const adminToken = loginRes.body.data.accessToken;
+
+    const res = await request(app.getHttpServer())
+      .get('/api/v1/audit-logs?page=1&limit=5')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(Array.isArray(res.body.data)).toBe(true);
+    expect(res.body.meta).toHaveProperty('page', 1);
+    expect(res.body.meta).toHaveProperty('limit', 5);
+    expect(res.body.meta).toHaveProperty('totalItems');
+    expect(res.body.meta).toHaveProperty('totalPages');
+    expect(res.body.meta).toHaveProperty('hasNextPage');
+    expect(res.body.meta).toHaveProperty('hasPrevPage');
+  });
+
+  it('🧪 Should allow Admin to retrieve security incident summary statistics', async () => {
+    const loginRes = await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({
+        email: 'admin@aegis.local',
+        password: 'AdminSecure2026!',
+      });
+
+    const adminToken = loginRes.body.data.accessToken;
+
+    const res = await request(app.getHttpServer())
+      .get('/api/v1/audit-logs/summary')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data).toHaveProperty('failedLogins24h');
+    expect(res.body.data).toHaveProperty('suspiciousIps');
+    expect(res.body.data).toHaveProperty('totalSecurityEvents');
+    expect(Array.isArray(res.body.data.suspiciousIps)).toBe(true);
+  });
 });
