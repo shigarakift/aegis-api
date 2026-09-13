@@ -4,6 +4,7 @@ import {
   BeforeUpdate,
   Column,
   CreateDateColumn,
+  DeleteDateColumn,
   Entity,
   Index,
   OneToMany,
@@ -16,7 +17,7 @@ import { PasswordResetToken } from './password-reset-token.entity';
 import { RefreshToken } from './refresh-token.entity';
 
 @Entity('users')
-@Index(['role', 'isActive'])
+@Index(['role', 'isActive', 'deletedAt'])
 export class User {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -84,4 +85,11 @@ export class User {
     default: () => 'CURRENT_TIMESTAMP',
   })
   updatedAt: Date;
+
+  @DeleteDateColumn({
+    type: 'timestamptz',
+    name: 'deleted_at',
+    nullable: true,
+  })
+  deletedAt?: Date | null;
 }
