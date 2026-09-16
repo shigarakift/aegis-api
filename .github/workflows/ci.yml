@@ -1,0 +1,79 @@
+name: aegisAPI CI Pipeline
+
+on:
+  push:
+    branches: [main, development]
+  pull_request:
+    branches: [main, development]
+
+jobs:
+  test-and-build:
+    name: Build, Lint & E2E Security Tests
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgrespassword
+          POSTGRES_DB: aegis_api_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: 📦 Install Dependencies
+        run: npm ci
+
+      - name: 🔍 Static Analysis & Type Checking
+        run: npm run lint
+
+      - name: 🛠️ Compile Application (Build)
+        run: npm run build
+
+      - name: 🗄️ Run Database Migrations
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_USERNAME: postgres
+          DB_PASSWORD: postgrespassword
+          DB_DATABASE: aegis_api_db
+          JWT_ACCESS_SECRET: github_actions_ci_secret_access_token_min_32_chars
+          JWT_REFRESH_SECRET: github_actions_ci_secret_refresh_token_min_32_chars
+        run: npm run migration:run
+
+      - name: 🌱 Seed Default Database Users
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_USERNAME: postgres
+          DB_PASSWORD: postgrespassword
+          DB_DATABASE: aegis_api_db
+          JWT_ACCESS_SECRET: github_actions_ci_secret_access_token_min_32_chars
+          JWT_REFRESH_SECRET: github_actions_ci_secret_refresh_token_min_32_chars
+        run: npm run seed
+
+      - name: 🧪 Run Security E2E Test Suite
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_USERNAME: postgres
+          DB_PASSWORD: postgrespassword
+          DB_DATABASE: aegis_api_db
+          JWT_ACCESS_SECRET: github_actions_ci_secret_access_token_min_32_chars
+          JWT_REFRESH_SECRET: github_actions_ci_secret_refresh_token_min_32_chars
+        run: npm run test:e2e
