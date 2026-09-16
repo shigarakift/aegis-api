@@ -59,6 +59,9 @@ export class User {
   @Column({ type: 'boolean', name: 'is_active', default: true })
   isActive: boolean;
 
+  @Column({ type: 'varchar', length: 500, nullable: true, name: 'avatar_url' })
+  avatarUrl?: string | null;
+
   @OneToMany(() => RefreshToken, (token) => token.user, {
     cascade: ['remove'],
   })

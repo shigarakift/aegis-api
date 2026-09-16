@@ -7,12 +7,18 @@ import {
   HttpStatus,
   Param,
   Patch,
+  Post,
   Query,
   Req,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiBearerAuth,
+  ApiBody,
+  ApiConsumes,
   ApiOperation,
   ApiResponse,
   ApiTags,
@@ -23,6 +29,10 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { Role } from '../../common/enums/role.enum';
 import { OwnershipGuard } from '../../common/guards/ownership.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
+import {
+  FileValidationPipe,
+  ValidatedFile,
+} from '../../common/pipes/file-validation.pipe';
 import { QueryUserDto } from './dto/query-user.dto';
 import { UpdateUserStatusDto } from './dto/update-user-status.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -43,6 +53,60 @@ export class UsersController {
     return {
       success: true,
       data: user,
+    };
+  }
+
+  @Post('me/avatar')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: 2 * 1024 * 1024 }, // Max 2MB buffer limit
+    }),
+  )
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({
+    summary:
+      'Mengunggah foto avatar pengguna (Proteksi MIME Magic Number & Path Traversal Safe)',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['file'],
+      properties: {
+        file: {
+          type: 'string',
+          format: 'binary',
+          description: 'File gambar avatar (JPEG, PNG, atau WebP, maks. 2MB)',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Avatar berhasil diperbarui',
+  })
+  @ApiResponse({
+    status: 400,
+    description:
+      'File tidak valid, ekstensi/magic number tidak sah, atau ukuran melebihi 2MB',
+  })
+  async uploadAvatar(
+    @CurrentUser('id') userId: string,
+    @UploadedFile(new FileValidationPipe()) file: ValidatedFile,
+    @Req() req: Request,
+  ) {
+    const ipAddress = req.ip || req.socket.remoteAddress || '127.0.0.1';
+    const userAgent = req.headers['user-agent'];
+    const result = await this.usersService.updateAvatar(
+      userId,
+      file,
+      ipAddress,
+      userAgent,
+    );
+
+    return {
+      success: true,
+      message: 'Avatar berhasil diperbarui.',
+      data: result,
     };
   }
 

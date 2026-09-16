@@ -5,8 +5,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { randomUUID } from 'crypto';
+import * as fs from 'fs';
+import * as path from 'path';
 import { Repository } from 'typeorm';
 import { Role } from '../../common/enums/role.enum';
+import { ValidatedFile } from '../../common/pipes/file-validation.pipe';
 import { RefreshToken } from '../../database/entities/refresh-token.entity';
 import { User } from '../../database/entities/user.entity';
 import { AuditLogService } from '../logger/audit-log.service';
@@ -86,6 +90,7 @@ export class UsersService {
       'user.fullName',
       'user.role',
       'user.isActive',
+      'user.avatarUrl',
       'user.createdAt',
       'user.updatedAt',
       'user.deletedAt',
@@ -122,6 +127,7 @@ export class UsersService {
       'user.fullName',
       'user.role',
       'user.isActive',
+      'user.avatarUrl',
       'user.createdAt',
       'user.updatedAt',
       'user.deletedAt',
@@ -246,5 +252,63 @@ export class UsersService {
       success: true,
       message: 'Akun berhasil dinonaktifkan dan dihapus secara aman.',
     };
+  }
+
+  async updateAvatar(
+    userId: string,
+    file: ValidatedFile,
+    ipAddress?: string,
+    userAgent?: string,
+  ): Promise<{ avatarUrl: string }> {
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+    });
+
+    if (!user || !user.isActive) {
+      throw new NotFoundException('Pengguna tidak ditemukan atau sedang dinonaktifkan.');
+    }
+
+    // 1. Sanitasi nama file dengan UUID acak untuk mencegah Path Traversal & Remote Code Execution
+    const fileName = `${randomUUID()}.${file.detectedExt}`;
+    const uploadDir = path.join(process.cwd(), 'uploads', 'avatars');
+
+    // 2. Pastikan direktori penyimpanan aman tersedia
+    await fs.promises.mkdir(uploadDir, { recursive: true });
+
+    // 3. Hapus avatar lama milik pengguna jika sebelumnya ada di disk
+    if (user.avatarUrl && user.avatarUrl.startsWith('/uploads/avatars/')) {
+      const oldFileName = path.basename(user.avatarUrl);
+      const oldFilePath = path.join(uploadDir, oldFileName);
+      try {
+        await fs.promises.unlink(oldFilePath);
+      } catch {
+        // Abaikan jika file lama tidak ditemukan di disk
+      }
+    }
+
+    // 4. Tulis file buffer baru ke disk secara aman
+    const targetFilePath = path.join(uploadDir, fileName);
+    await fs.promises.writeFile(targetFilePath, file.buffer);
+
+    // 5. Update field avatarUrl di database
+    const avatarUrl = `/uploads/avatars/${fileName}`;
+    await this.userRepository.update(userId, {
+      avatarUrl,
+      updatedAt: new Date(),
+    });
+
+    // 6. Jejak audit non-blocking
+    try {
+      await this.auditLogService.logEvent({
+        userId,
+        action: 'USER_AVATAR_UPDATED',
+        ipAddress,
+        userAgent,
+      });
+    } catch {
+      // Non-blocking
+    }
+
+    return { avatarUrl };
   }
 }
