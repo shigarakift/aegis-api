@@ -233,4 +233,12 @@ describe('aegisAPI Security E2E Tests', () => {
     expect(res.status).toBe(400);
     expect(res.body.success).toBe(false);
   });
+
+  it('🧪 Should allow public access to GET /api/v1/health with probe indicators', async () => {
+    const res = await request(app.getHttpServer()).get('/api/v1/health');
+
+    expect([200, 503]).toContain(res.status);
+    expect(res.body).toHaveProperty('status');
+    expect(res.body).toHaveProperty('details');
+  });
 });

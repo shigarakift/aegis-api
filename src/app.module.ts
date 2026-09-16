@@ -10,6 +10,7 @@ import { AuditLoggingInterceptor } from './common/interceptors/audit-logging.int
 import { envValidationSchema } from './config/env.validation';
 import { DatabaseModule } from './database/database.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { HealthModule } from './modules/health/health.module';
 import { LoggerModule } from './modules/logger/logger.module';
 import { MailerModule } from './modules/mailer/mailer.module';
 import { UsersModule } from './modules/users/users.module';
@@ -41,6 +42,7 @@ import { UsersModule } from './modules/users/users.module';
     MailerModule,
     AuthModule,
     UsersModule,
+    HealthModule,
   ],
   providers: [
     {
