@@ -3,8 +3,10 @@ import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import * as cookieParser from 'cookie-parser';
+import * as express from 'express';
 import helmet from 'helmet';
 import { Logger } from 'nestjs-pino';
+import { join } from 'path';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
@@ -21,6 +23,9 @@ async function bootstrap() {
 
   // 2. Cookie Parser
   app.use(cookieParser());
+
+  // 3. Serve Static Uploads
+  app.use('/uploads', express.static(join(process.cwd(), 'uploads')));
 
   // 3. Strict CORS Configuration
   app.enableCors({

@@ -45,6 +45,9 @@ export class AuditLogService {
       await this.auditLogRepository.save(log);
     } catch (error) {
       // Prevent failure in audit logging from crashing the primary request flow
+      if ((error as any)?.message?.includes('Connection terminated')) {
+        return;
+      }
       console.error('Failed to save audit log:', error);
     }
   }

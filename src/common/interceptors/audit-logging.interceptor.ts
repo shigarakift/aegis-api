@@ -41,6 +41,9 @@ export class AuditLoggingInterceptor implements NestInterceptor {
                 userAgent,
               })
               .catch((err) => {
+                if ((err as any)?.message?.includes('Connection terminated')) {
+                  return;
+                }
                 console.error('Audit logging interceptor error:', err);
               });
           } catch (err) {
