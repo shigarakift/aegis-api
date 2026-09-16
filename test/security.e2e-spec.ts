@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import * as request from 'supertest';
+import * as cookieParser from 'cookie-parser';
 import { AppModule } from '../src/app.module';
 
 describe('aegisAPI Security E2E Tests', () => {
@@ -12,6 +13,7 @@ describe('aegisAPI Security E2E Tests', () => {
     }).compile();
 
     app = moduleFixture.createNestApplication();
+    app.use(cookieParser());
     app.useGlobalPipes(
       new ValidationPipe({
         whitelist: true,
@@ -186,5 +188,49 @@ describe('aegisAPI Security E2E Tests', () => {
     expect(res.body.data).toHaveProperty('suspiciousIps');
     expect(res.body.data).toHaveProperty('totalSecurityEvents');
     expect(Array.isArray(res.body.data.suspiciousIps)).toBe(true);
+  });
+
+  it('🧪 Should reject change-password when currentPassword is wrong', async () => {
+    const loginRes = await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({
+        email: 'user@aegis.local',
+        password: 'UserSecure2026!',
+      });
+
+    const userToken = loginRes.body.data.accessToken;
+
+    const res = await request(app.getHttpServer())
+      .patch('/api/v1/auth/change-password')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({
+        currentPassword: 'WrongPassword123!',
+        newPassword: 'NewSecurePassword2026!',
+      });
+
+    expect(res.status).toBe(401);
+    expect(res.body.success).toBe(false);
+  });
+
+  it('🧪 Should reject change-password when newPassword is identical to currentPassword', async () => {
+    const loginRes = await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({
+        email: 'user@aegis.local',
+        password: 'UserSecure2026!',
+      });
+
+    const userToken = loginRes.body.data.accessToken;
+
+    const res = await request(app.getHttpServer())
+      .patch('/api/v1/auth/change-password')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({
+        currentPassword: 'UserSecure2026!',
+        newPassword: 'UserSecure2026!',
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
   });
 });

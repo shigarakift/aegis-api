@@ -6,6 +6,7 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  Patch,
   Post,
   Req,
   Res,
@@ -18,6 +19,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { AuthGuard } from '@nestjs/passport';
 import { AuthService } from './auth.service';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
@@ -133,6 +135,43 @@ export class AuthController {
       success: true,
       message: 'Logout berhasil, sesi telah diakhiri.',
     };
+  }
+
+  @Patch('change-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth('access-token')
+  @ApiOperation({
+    summary: 'Ubah Kata Sandi Pengguna & Invalidation Sesi Aktif',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Kata sandi berhasil diubah, seluruh sesi lain dicabut',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Password baru tidak memenuhi syarat atau sama dengan password lama',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Password saat ini salah atau sesi tidak sah',
+  })
+  async changePassword(
+    @CurrentUser('id') userId: string,
+    @Body() dto: ChangePasswordDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const ipAddress = req.ip || req.socket.remoteAddress || '127.0.0.1';
+    const userAgent = req.headers['user-agent'];
+    const result = await this.authService.changePassword(
+      userId,
+      dto,
+      ipAddress,
+      userAgent,
+    );
+    res.clearCookie('refresh_token');
+
+    return result;
   }
 
   @Public()
