@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import * as request from 'supertest';
+import * as cookieParser from 'cookie-parser';
 import { AppModule } from '../src/app.module';
 
 describe('aegisAPI Security E2E Tests', () => {
@@ -12,6 +13,7 @@ describe('aegisAPI Security E2E Tests', () => {
     }).compile();
 
     app = moduleFixture.createNestApplication();
+    app.use(cookieParser());
     app.useGlobalPipes(
       new ValidationPipe({
         whitelist: true,
@@ -122,5 +124,121 @@ describe('aegisAPI Security E2E Tests', () => {
     res.body.data.forEach((u: any) => {
       expect(u.password).toBeUndefined();
     });
+  });
+
+  it('🧪 Should reject non-admin users from accessing GET /api/v1/audit-logs (RBAC Enforcement)', async () => {
+    const loginRes = await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({
+        email: 'user@aegis.local',
+        password: 'UserSecure2026!',
+      });
+
+    const userToken = loginRes.body.data.accessToken;
+
+    const res = await request(app.getHttpServer())
+      .get('/api/v1/audit-logs')
+      .set('Authorization', `Bearer ${userToken}`);
+
+    expect(res.status).toBe(403);
+  });
+
+  it('🧪 Should allow Admin to query audit logs with pagination metadata', async () => {
+    const loginRes = await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({
+        email: 'admin@aegis.local',
+        password: 'AdminSecure2026!',
+      });
+
+    const adminToken = loginRes.body.data.accessToken;
+
+    const res = await request(app.getHttpServer())
+      .get('/api/v1/audit-logs?page=1&limit=5')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(Array.isArray(res.body.data)).toBe(true);
+    expect(res.body.meta).toHaveProperty('page', 1);
+    expect(res.body.meta).toHaveProperty('limit', 5);
+    expect(res.body.meta).toHaveProperty('totalItems');
+    expect(res.body.meta).toHaveProperty('totalPages');
+    expect(res.body.meta).toHaveProperty('hasNextPage');
+    expect(res.body.meta).toHaveProperty('hasPrevPage');
+  });
+
+  it('🧪 Should allow Admin to retrieve security incident summary statistics', async () => {
+    const loginRes = await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({
+        email: 'admin@aegis.local',
+        password: 'AdminSecure2026!',
+      });
+
+    const adminToken = loginRes.body.data.accessToken;
+
+    const res = await request(app.getHttpServer())
+      .get('/api/v1/audit-logs/summary')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data).toHaveProperty('failedLogins24h');
+    expect(res.body.data).toHaveProperty('suspiciousIps');
+    expect(res.body.data).toHaveProperty('totalSecurityEvents');
+    expect(Array.isArray(res.body.data.suspiciousIps)).toBe(true);
+  });
+
+  it('🧪 Should reject change-password when currentPassword is wrong', async () => {
+    const loginRes = await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({
+        email: 'user@aegis.local',
+        password: 'UserSecure2026!',
+      });
+
+    const userToken = loginRes.body.data.accessToken;
+
+    const res = await request(app.getHttpServer())
+      .patch('/api/v1/auth/change-password')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({
+        currentPassword: 'WrongPassword123!',
+        newPassword: 'NewSecurePassword2026!',
+      });
+
+    expect(res.status).toBe(401);
+    expect(res.body.success).toBe(false);
+  });
+
+  it('🧪 Should reject change-password when newPassword is identical to currentPassword', async () => {
+    const loginRes = await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({
+        email: 'user@aegis.local',
+        password: 'UserSecure2026!',
+      });
+
+    const userToken = loginRes.body.data.accessToken;
+
+    const res = await request(app.getHttpServer())
+      .patch('/api/v1/auth/change-password')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({
+        currentPassword: 'UserSecure2026!',
+        newPassword: 'UserSecure2026!',
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+  });
+
+  it('🧪 Should allow public access to GET /api/v1/health with probe indicators', async () => {
+    const res = await request(app.getHttpServer()).get('/api/v1/health');
+
+    expect([200, 503]).toContain(res.status);
+    expect(res.body).toHaveProperty('status');
+    expect(res.body).toHaveProperty('details');
   });
 });

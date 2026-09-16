@@ -18,6 +18,7 @@ import { AuditLogService } from '../logger/audit-log.service';
 import { MailerService } from '../mailer/mailer.service';
 import { getPasswordResetTemplate } from '../mailer/templates/password-reset.template';
 import { Argon2Service } from './argon2.service';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
@@ -142,7 +143,7 @@ export class AuthService {
     });
 
     if (!user || !user.isActive) {
-      throw new UnauthorizedException('Akses ditolak: Akun tidak ditemukan.');
+      throw new UnauthorizedException('Akses ditolak: Akun tidak ditemukan atau telah dinonaktifkan.');
     }
 
     const activeTokens = await this.refreshTokenRepository.find({
@@ -166,6 +167,48 @@ export class AuthService {
     }
 
     if (!matchingTokenRecord) {
+      // Periksa apakah token yang dikirim adalah token yang sudah pernah di-revoke (Deteksi Replay / Reuse Attack)
+      const revokedTokens = await this.refreshTokenRepository.find({
+        where: {
+          userId,
+          isRevoked: true,
+        },
+        order: { createdAt: 'DESC' },
+        take: 50,
+      });
+
+      let isTokenReused = false;
+      for (const record of revokedTokens) {
+        const isMatch = await this.argon2Service.verify(
+          record.tokenHash,
+          rawRefreshToken,
+        );
+        if (isMatch) {
+          isTokenReused = true;
+          break;
+        }
+      }
+
+      if (isTokenReused) {
+        // DETEKSI PELANGGARAN KEAMANAN: Token Reuse Detected!
+        // Otomatis cabut seluruh token aktif user (Family Revocation)
+        await this.refreshTokenRepository.update(
+          { userId, isRevoked: false },
+          { isRevoked: true },
+        );
+
+        await this.auditLogService.logEvent({
+          userId,
+          action: 'SECURITY_ALERT_REFRESH_TOKEN_REUSE',
+          ipAddress,
+          userAgent,
+        });
+
+        throw new UnauthorizedException(
+          'Aktivitas mencurigakan terdeteksi (token reuse). Seluruh sesi telah dicabut. Silakan login kembali.',
+        );
+      }
+
       await this.auditLogService.logEvent({
         userId,
         action: 'REFRESH_TOKEN_INVALID_OR_REVOKED',
@@ -175,20 +218,29 @@ export class AuthService {
       throw new UnauthorizedException('Refresh token tidak valid atau telah dicabut.');
     }
 
-    // Revoke old token for rotation
-    await this.refreshTokenRepository.update(matchingTokenRecord.id, {
-      isRevoked: true,
-    });
-
     // Issue new token pair
     const tokens = await this.generateTokens(user.id, user.email, user.role);
-    await this.storeRefreshToken(
-      user.id,
-      tokens.refreshToken,
-      ipAddress,
-      userAgent,
-      matchingTokenRecord.familyId,
-    );
+
+    // Atomic transaction: Revoke token lama dan terbitkan token baru dengan familyId yang sama
+    await this.refreshTokenRepository.manager.transaction(async (manager) => {
+      await manager.update(RefreshToken, matchingTokenRecord!.id, {
+        isRevoked: true,
+      });
+
+      const tokenHash = await this.argon2Service.hash(tokens.refreshToken);
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + 7);
+
+      const newToken = manager.create(RefreshToken, {
+        userId: user.id,
+        tokenHash,
+        expiresAt,
+        ipAddress,
+        userAgent,
+        familyId: matchingTokenRecord!.familyId,
+      });
+      await manager.save(RefreshToken, newToken);
+    });
 
     await this.auditLogService.logEvent({
       userId: user.id,
@@ -551,6 +603,75 @@ export class AuthService {
     return {
       success: true,
       message: 'Seluruh sesi perangkat lain berhasil dicabut.',
+    };
+  }
+
+  async changePassword(
+    userId: string,
+    dto: ChangePasswordDto,
+    ipAddress: string,
+    userAgent?: string,
+  ): Promise<{ success: boolean; message: string }> {
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+    });
+
+    if (!user || !user.isActive) {
+      throw new UnauthorizedException('Akun tidak ditemukan atau sedang dinonaktifkan.');
+    }
+
+    // 1. Verifikasi kecocokan password saat ini
+    const isCurrentPasswordValid = await this.argon2Service.verify(
+      user.password,
+      dto.currentPassword,
+    );
+
+    if (!isCurrentPasswordValid) {
+      await this.auditLogService.logEvent({
+        userId,
+        action: 'PASSWORD_CHANGE_FAILED_WRONG_CURRENT',
+        ipAddress,
+        userAgent,
+      });
+      throw new UnauthorizedException('Password saat ini salah.');
+    }
+
+    // 2. Cegah penggunaan password baru yang sama persis dengan password saat ini
+    if (dto.currentPassword === dto.newPassword) {
+      throw new BadRequestException(
+        'Password baru tidak boleh sama dengan password saat ini.',
+      );
+    }
+
+    // 3. Hash password baru dengan Argon2id
+    const newHashedPassword = await this.argon2Service.hash(dto.newPassword);
+
+    // 4. Update password dan cabut seluruh refresh token aktif dalam satu transaksi DB
+    await this.userRepository.manager.transaction(async (manager) => {
+      await manager.update(User, userId, {
+        password: newHashedPassword,
+        updatedAt: new Date(),
+      });
+
+      await manager.update(
+        RefreshToken,
+        { userId, isRevoked: false },
+        { isRevoked: true },
+      );
+    });
+
+    // 5. Catat jejak audit keberhasilan ubah password
+    await this.auditLogService.logEvent({
+      userId,
+      action: 'PASSWORD_CHANGE_SUCCESS',
+      ipAddress,
+      userAgent,
+    });
+
+    return {
+      success: true,
+      message:
+        'Password berhasil diubah. Seluruh sesi aktif di perangkat lain telah diakhiri.',
     };
   }
 }
