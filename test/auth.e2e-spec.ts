@@ -13,6 +13,7 @@ describe('Authentication & Token Security E2E Tests (FEAT-8.1)', () => {
     }).compile();
 
     app = moduleFixture.createNestApplication();
+    app.getHttpAdapter().getInstance().set('trust proxy', true);
     app.use(cookieParser());
     app.useGlobalPipes(
       new ValidationPipe({
@@ -26,6 +27,7 @@ describe('Authentication & Token Security E2E Tests (FEAT-8.1)', () => {
   });
 
   afterAll(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 500));
     await app.close();
   });
 
@@ -71,10 +73,12 @@ describe('Authentication & Token Security E2E Tests (FEAT-8.1)', () => {
   });
 
   it('🧪 Skenario Brute-Force Rate Limiting (Throttle Protection)', async () => {
+    const bruteForceIp = '198.51.100.99';
     // Attempt 5 logins with bad credentials (allowed by limit 5 per min)
     for (let i = 0; i < 5; i++) {
       await request(app.getHttpServer())
         .post('/api/v1/auth/login')
+        .set('X-Forwarded-For', bruteForceIp)
         .send({
           email: 'user@aegis.local',
           password: `WrongPasswordAttempt${i}!`,
@@ -84,6 +88,7 @@ describe('Authentication & Token Security E2E Tests (FEAT-8.1)', () => {
     // 6th attempt must be blocked by ThrottlerGuard with 429 Too Many Requests
     const throttledRes = await request(app.getHttpServer())
       .post('/api/v1/auth/login')
+      .set('X-Forwarded-For', bruteForceIp)
       .send({
         email: 'user@aegis.local',
         password: 'WrongPasswordAttempt6!',

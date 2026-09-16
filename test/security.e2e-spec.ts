@@ -26,6 +26,7 @@ describe('aegisAPI Security E2E Tests', () => {
   });
 
   afterAll(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 500));
     await app.close();
   });
 

@@ -286,7 +286,12 @@ export class AuthService {
   }
 
   private async generateTokens(userId: string, email: string, role: string) {
-    const payload = { sub: userId, email, role };
+    const payload = {
+      sub: userId,
+      email,
+      role,
+      jti: crypto.randomUUID(),
+    };
 
     const accessToken = await this.jwtService.signAsync(payload, {
       secret: this.configService.get<string>('JWT_ACCESS_SECRET'),

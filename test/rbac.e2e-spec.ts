@@ -50,6 +50,7 @@ describe('RBAC Boundary & IDOR Prevention E2E Tests (FEAT-8.1)', () => {
   });
 
   afterAll(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 500));
     await app.close();
   });
 

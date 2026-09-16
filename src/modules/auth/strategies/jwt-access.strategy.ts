@@ -10,6 +10,7 @@ export interface JwtPayload {
   sub: string;
   email: string;
   role: string;
+  jti?: string;
 }
 
 const customBearerExtractor = (req: any): string | null => {
